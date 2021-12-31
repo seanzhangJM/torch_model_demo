@@ -9,10 +9,24 @@
 import torch
 from torch import nn
 from torch.utils import data
-from torch_model_demo.util.bean import Accumulator, Animator
+from torch_model_demo.util.bean import Accumulator, Animator, Timer
 from torch_model_demo.util.log_config import get_logger
 
 logger = get_logger()
+
+
+def try_gpu(i=0):
+    """如果存在，则返回gpu(i)，否则返回cpu()"""
+    if torch.cuda.device_count() >= i + 1:
+        return torch.device(f'cuda:{i}')
+    return torch.device('cpu')
+
+
+def try_all_gpus():
+    """返回所有可用的GPU，如果没有GPU，则返回[cpu(),]"""
+    devices = [torch.device(f'cuda:{i}')
+               for i in range(torch.cuda.device_count())]
+    return devices if devices else [torch.device('cpu')]
 
 
 def load_array(data_arrays, batch_size, is_train=True):  # @save
@@ -34,76 +48,110 @@ def accuracy(y_hat, y):
     return float(cmp.type(y.dtype).sum())
 
 
-def evaluate_accuracy(net, data_iter):
-    """计算在指定数据集上模型的精度"""
-    if isinstance(net, torch.nn.Module):
-        net.eval()  # 将模型设置为评估模式
-    metric = Accumulator(2)  # 正确预测数、预测总数
+def evaluate_accuracy(net, data_iter, device=None):
+    """使用GPU计算模型在数据集上的精度"""
+    if isinstance(net, nn.Module):
+        net.eval()  # 设置为评估模式
+        if not device:
+            device = next(iter(net.parameters())).device
+    # 正确预测的数量，总预测的数量
+    metric = Accumulator(2)
     with torch.no_grad():
         for X, y in data_iter:
+            if isinstance(X, list):
+                # BERT微调所需的（之后将介绍）
+                X = [x.to(device) for x in X]
+            else:
+                X = X.to(device)
+            y = y.to(device)
             metric.add(accuracy(net(X), y), y.numel())
     logger.info("验证{}数据集准确率成功".format(str(data_iter)))
     return metric[0] / metric[1]
 
 
-def train_epoch(net, train_iter, loss, updater):
-    """
-    训练模型一个迭代周期
-    :param net: model
-    :param train_iter: data iterator
-    :param loss: user defined loss or comming from the pytorch trainig framework
-    :param updater: learning function,it could be the user-defined or comming from the pytoch built-in frame work
-    :return:
-    """
-    # 将模型设置为训练模式
-    if isinstance(net, torch.nn.Module):
-        net.train()
-    # 训练损失总和、训练准确度总和、样本数
-    metric = Accumulator(3)
-    for X, y in train_iter:
-        # 计算梯度并更新参数
-        y_hat = net(X)
-        l = loss(y_hat, y)
-        if isinstance(updater, torch.optim.Optimizer):
-            # 使用PyTorch内置的优化器和损失函数
-            updater.zero_grad()
-            l.sum().backward()
-            updater.step()
-            #crossentropy 默认是mean的话就要乘以样本数目进行恢复
-            metric.add(float(l) * len(y), accuracy(y_hat, y), y.size().numel())
-        else:
-            # 使用定制的优化器和损失函数
-            l.sum().backward()
-            updater(X.shape[0])
-            metric.add(float(l.sum()), accuracy(y_hat, y), y.numel())
-    # 返回训练损失和训练精度
-    return metric[0] / metric[2], metric[1] / metric[2]
+def train(net, train_iter, test_iter, num_epochs, lr, device):
+    """用GPU训练模型"""
 
+    def init_weights(m):
+        if type(m) == nn.Linear or type(m) == nn.Conv2d:
+            nn.init.xavier_uniform_(m.weight)
 
-def train(net, train_iter, test_iter, loss, num_epochs, updater):
-    """
-    训练模型
-    :param net:
-    :param train_iter:
-    :param test_iter:
-    :param loss:
-    :param num_epochs:
-    :param updater:
-    :return:
-    """
-    global train_metrics, test_acc
-    animator = Animator(xlabel='epoch', xlim=[1, num_epochs], ylim=[0.3, 0.9],
+    net.apply(init_weights)
+    print('training on', device)
+    net.to(device)
+    optimizer = torch.optim.SGD(net.parameters(), lr=lr)
+    loss = nn.CrossEntropyLoss()
+    animator = Animator(xlabel='epoch', xlim=[1, num_epochs],
                         legend=['train loss', 'train acc', 'test acc'])
+    timer, num_batches = Timer(), len(train_iter)
     for epoch in range(num_epochs):
-        train_metrics = train_epoch(net, train_iter, loss, updater)
-        logger.info("第{}轮：训练完成".format(str(epoch)))
+        # 训练损失之和，训练准确率之和，范例数
+        metric = Accumulator(3)
+        net.train()
+        for i, (X, y) in enumerate(train_iter):
+            timer.start()
+            optimizer.zero_grad()
+            X, y = X.to(device), y.to(device)
+            y_hat = net(X)
+            l = loss(y_hat, y)
+            l.backward()
+            optimizer.step()
+            with torch.no_grad():
+                metric.add(l * X.shape[0], accuracy(y_hat, y), X.shape[0])
+            timer.stop()
+            train_l = metric[0] / metric[2]
+            train_acc = metric[1] / metric[2]
+            if (i + 1) % (num_batches // 5) == 0 or i == num_batches - 1:
+                animator.add(epoch + (i + 1) / num_batches,
+                             (train_l, train_acc, None))
         test_acc = evaluate_accuracy(net, test_iter)
-        logger.info(
-            "train loss:" + str(train_metrics[0]) + "train acc:" + str(train_metrics[1]) + "test acc:" + str(test_acc))
-        # animator要在jupyter里面才有用
-        animator.add(epoch + 1, train_metrics + (test_acc,))
-    train_loss, train_acc = train_metrics
-    # 根据不同任务这里灵活调节
-    assert train_loss < 0.5, train_loss
-    assert 1 >= train_acc > 0.7, train_acc
-    assert 1 >= test_acc > 0.7, test_acc
+        animator.add(epoch + 1, (None, None, test_acc))
+    print(f'loss {train_l:.3f}, train acc {train_acc:.3f}, '
+          f'test acc {test_acc:.3f}')
+    print(f'{metric[2] * num_epochs / timer.sum():.1f} examples/sec '
+          f'on {str(device)}')
+
+def get_k_fold_data(k, i, X, y):
+    assert k > 1
+    fold_size = X.shape[0] // k
+    X_train, y_train = None, None
+    for j in range(k):
+        idx = slice(j * fold_size, (j + 1) * fold_size)
+        X_part, y_part = X[idx, :], y[idx]
+        if j == i:
+            X_valid, y_valid = X_part, y_part
+        elif X_train is None:
+            X_train, y_train = X_part, y_part
+        else:
+            X_train = torch.cat([X_train, X_part], 0)
+            y_train = torch.cat([y_train, y_part], 0)
+    return X_train, y_train, X_valid, y_valid
+
+
+
+def k_fold(net,k, X_train, y_train, num_epochs, learning_rate, weight_decay,batch_size):
+    """
+    修改后，可以用于传统模型，深度学习中基本不用这个
+    :param net:
+    :param k:
+    :param X_train:
+    :param y_train:
+    :param num_epochs:
+    :param learning_rate:
+    :param weight_decay: 正则衰减
+    :param batch_size:
+    :return:
+    """
+    train_l_sum, valid_l_sum = 0, 0
+    for i in range(k):
+        data = get_k_fold_data(k, i, X_train, y_train)
+        train_ls, valid_ls = train(net, *data, num_epochs, learning_rate,weight_decay, batch_size)
+        train_l_sum += train_ls[-1]
+        valid_l_sum += valid_ls[-1]
+        if i == 0:
+            d2l.plot(list(range(1, num_epochs + 1)), [train_ls, valid_ls],
+                     xlabel='epoch', ylabel='rmse', xlim=[1, num_epochs],
+                     legend=['train', 'valid'], yscale='log')
+        print(f'折{i + 1}，训练log rmse{float(train_ls[-1]):f}, '
+              f'验证log rmse{float(valid_ls[-1]):f}')
+    return train_l_sum / k, valid_l_sum / k

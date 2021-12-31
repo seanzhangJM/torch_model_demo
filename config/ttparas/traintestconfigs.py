@@ -9,6 +9,6 @@
 
 TRAIN_CONFIG = {
     "BATCH_SIZE": 256,
-    "LEARNING_RATE": 1e-1,
+    "LEARNING_RATE": 0.9,
     "NUM_EPOCHS": 10
 }

@@ -8,8 +8,8 @@
 
 from IPython import display
 from d2l import torch as d2l
-from matplotlib import pyplot as plt
-
+import time
+import numpy as np
 
 class Accumulator:
     """
