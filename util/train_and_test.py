@@ -11,6 +11,7 @@ from torch import nn
 from torch.utils import data
 from torch_model_demo.util.bean import Accumulator, Animator, Timer
 from torch_model_demo.util.log_config import get_logger
+from d2l import torch as d2l
 
 logger = get_logger()
 
@@ -111,6 +112,7 @@ def train(net, train_iter, test_iter, num_epochs, lr, device):
     print(f'{metric[2] * num_epochs / timer.sum():.1f} examples/sec '
           f'on {str(device)}')
 
+
 def get_k_fold_data(k, i, X, y):
     assert k > 1
     fold_size = X.shape[0] // k
@@ -128,8 +130,7 @@ def get_k_fold_data(k, i, X, y):
     return X_train, y_train, X_valid, y_valid
 
 
-
-def k_fold(net,k, X_train, y_train, num_epochs, learning_rate, weight_decay,batch_size):
+def k_fold(net, k, X_train, y_train, num_epochs, learning_rate, weight_decay, batch_size):
     """
     修改后，可以用于传统模型，深度学习中基本不用这个
     :param net:
@@ -145,7 +146,7 @@ def k_fold(net,k, X_train, y_train, num_epochs, learning_rate, weight_decay,batc
     train_l_sum, valid_l_sum = 0, 0
     for i in range(k):
         data = get_k_fold_data(k, i, X_train, y_train)
-        train_ls, valid_ls = train(net, *data, num_epochs, learning_rate,weight_decay, batch_size)
+        train_ls, valid_ls = train(net, *data, num_epochs, learning_rate, weight_decay, batch_size)
         train_l_sum += train_ls[-1]
         valid_l_sum += valid_ls[-1]
         if i == 0:
