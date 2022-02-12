@@ -30,7 +30,7 @@ def try_all_gpus():
     return devices if devices else [torch.device('cpu')]
 
 
-def load_array(data_arrays, batch_size, is_train=True):  # @save
+def load_array(data_arrays, batch_size, is_train=True):
     """构造一个PyTorch数据迭代器"""
     dataset = data.TensorDataset(*data_arrays)
     return data.DataLoader(dataset, batch_size, shuffle=is_train)
@@ -81,7 +81,7 @@ def train(net, train_iter, test_iter, num_epochs, lr, device):
     print('training on', device)
     net.to(device)
     optimizer = torch.optim.SGD(net.parameters(), lr=lr)
-    loss = nn.CrossEntropyLoss()
+    loss = nn.CrossEntropyLoss(reduction='mean')
     animator = Animator(xlabel='epoch', xlim=[1, num_epochs],
                         legend=['train loss', 'train acc', 'test acc'])
     timer, num_batches = Timer(), len(train_iter)
@@ -91,6 +91,7 @@ def train(net, train_iter, test_iter, num_epochs, lr, device):
         net.train()
         for i, (X, y) in enumerate(train_iter):
             timer.start()
+            # common route start
             optimizer.zero_grad()
             X, y = X.to(device), y.to(device)
             y_hat = net(X)
@@ -99,6 +100,7 @@ def train(net, train_iter, test_iter, num_epochs, lr, device):
             optimizer.step()
             with torch.no_grad():
                 metric.add(l * X.shape[0], accuracy(y_hat, y), X.shape[0])
+            # common route stop
             timer.stop()
             train_l = metric[0] / metric[2]
             train_acc = metric[1] / metric[2]

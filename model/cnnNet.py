@@ -49,7 +49,8 @@ AlexNet = nn.Sequential(
     # 最后是输出层。由于这里使用Fashion-MNIST，所以用类别数为10，而非论文中的1000
     nn.Linear(4096, 10))
 
-#*************************** Vgg11 ***************************
+
+# *************************** Vgg11 ***************************
 def vgg_Block(num_convs, in_channels, out_channels):
     layers = []
     for _ in range(num_convs):
@@ -75,7 +76,8 @@ def vgg_11(conv_arch=((1, 64), (1, 128), (2, 256), (2, 512), (2, 512))):
         nn.Linear(4096, 10)
     )
 
-#*************************** NinNet ***************************
+
+# *************************** NinNet ***************************
 def nin_block(in_channels, out_channels, kernel_size, strides, padding):
     return nn.Sequential(
         nn.Conv2d(in_channels, out_channels, kernel_size, strides, padding),
@@ -99,7 +101,8 @@ NilNet = nn.Sequential(
     # 将四维的输出转成二维的输出，其形状为(批量大小,10)
     nn.Flatten())
 
-#*************************** GoogleNet ***************************
+
+# *************************** GoogleNet ***************************
 class Inception(nn.Module):
     def __init__(self, in_channels, c1, c2, c3, c4, **kwargs):
         super(Inception, self).__init__()
@@ -143,7 +146,8 @@ b5 = nn.Sequential(Inception(832, 256, (160, 320), (32, 128), 128),
 
 GoogleNet = nn.Sequential(b1, b2, b3, b4, b5, nn.Linear(1024, 10))
 
-#*************************** ResNet ***************************
+
+# *************************** ResNet ***************************
 class Residual(nn.Module):
     def __init__(self, input_channels, num_channels, use_1x1conv=False, strides=1):
         super(Residual, self).__init__()
@@ -197,7 +201,8 @@ ResNet = nn.Sequential(b1, b2, b3, b4, b5,
                        nn.AdaptiveAvgPool2d((1, 1)),
                        nn.Flatten(), nn.Linear(512, 10))
 
-#*************************** DenseNet ***************************
+
+# *************************** DenseNet ***************************
 def conv_block(input_channels, num_channels):
     return nn.Sequential(
         nn.BatchNorm2d(input_channels), nn.ReLU(),
@@ -231,7 +236,7 @@ def transition_block(input_channels, num_channels):
 num_channels, growth_rate = 64, 32
 num_convs_in_dense_blocks = [4, 4, 4, 4]
 blks = []
-for i, num_convs in num_convs_in_dense_blocks:
+for i, num_convs in enumerate(num_convs_in_dense_blocks):
     blks.append(DenseBlock(num_convs, num_channels, growth_rate))
     num_channels += num_convs * growth_rate
     if i != len(num_convs_in_dense_blocks) - 1:
@@ -262,7 +267,5 @@ if __name__ == '__main__':
     # for layer in ResNet:
     #     X = layer(X)
     #     print(layer.__class__.__name__, 'output shape:\t', X.shape)
-    blk = DenseBlock(2, 3, 10)
-    X = torch.randn(4, 3, 8, 8)
-    Y = blk(X)
-    print(Y.shape)
+    print(ResNet)
+    print(*[(name, param.shape) for name, param in ResNet.named_parameters()])

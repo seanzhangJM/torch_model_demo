@@ -17,7 +17,8 @@ DATA_DIR = NAS_DIR / 'data'
 MODEL_DIR = NAS_DIR / 'model_save'
 PICTURE_DIR = NAS_DIR / 'picture'
 LOG_DIR = NAS_DIR / 'log'
-
+#训练数据目录
+TRAIN_DATA_DIR = BASE_DIR / 'data'
 # ************************ 日志级别 ************************
 LOG_LEVEL = 'DEBUG'
 CONSOLE_LEVEL = 'INFO'
